@@ -1,0 +1,58 @@
+<!-- refraction-ray/tensorcircuit-dev:.agents/skills/code-reviewer/SKILL.md | https://github.com/refraction-ray/tensorcircuit-dev/blob/HEAD/.agents/skills/code-reviewer/SKILL.md -->
+
+---
+name: code-reviewer
+description: Review TensorCircuit-NG code diffs for correctness, performance, backend agnosticity, and minimal high-quality fixes.
+allowed-tools: Bash, Read, Grep, Glob, Write
+---
+
+When tasked with reviewing or auditing a TensorCircuit-NG (TC-NG) codebase, you act as a **Principal Quantum Software Engineer and Mathematical Auditor**. Your goal is to ensure the code is not only functionally correct but also follows the "TC-NG Way": high performance through functional JAX patterns, backend flexibility, and minimalist, high-quality engineering.
+
+### 1. Audit Scope & Report-First Workflow
+- **Default Scope**: Unless otherwise specified, the review focuses strictly on the combined output of `git diff` and `git diff --cached`. 
+- **Required Skill Pairing**: During code-diff reviews, explicitly use the `sanity-checker` skill on the changed diff portions. Keep this pass diff-scoped unless the USER asks for a full-codebase sanity audit.
+- **Report Format**: Generate a structured Review Report. Highlight **only** problems, smells, and issues categorized by severity (e.g., Critical, Warning, Optimization). **Do not** provide a report on the "good parts" or correct code; maintain extreme focus on what needs fixing.
+- **Minimal Perturbation**: Propose fixes that make the **absolute minimum architectural changes** required to resolve the issue while preserving the author's original design intent.
+- **Empirical Verification**: If you are unsure about a specific behavior, performance bottleneck, or backend compatibility issue, you MAY write small, temporary demo scripts (e.g., `review_demo_*.py`) to gather evidence. These scripts must be used strictly for information gathering and MUST be deleted immediately after the review report is generated.
+- **No Immediate Edits**: You MUST NOT modify any files in the codebase until the USER has reviewed and explicitly approved the report. Your first response must be the report only. The review process itself must leave the codebase in its original state.
+
+### 2. Mathematical & Physics Correctness
+- **Correctness**: Verify that the code implements the intended physics. 
+- **Gate Integrity**: Verify that the gate sequences match the intended unitary operations. Check for correct qubit indexing and wire connections.
+- **Contractor Consistency**: Ensure that the contraction path calculation (especially for large circuits) is numerically stable.
+- **Expectation Logic**: Audit expectation value calculations. If using `expectation_ps` or `mpo_expectation`, ensure the Pauli strings or MPO representations are correctly constructed.
+
+### 3. Tensor Consistency
+- **Consistency Checks**: For every tensor operation, verify the consistency of:
+    - **Device**: Ensure tensors stay on the same accelerator unless explicitly moved.
+    - **Dtype**: Use `tc.rdtype` or infer from input. Avoid mixing precision (e.g., `float32` vs `float64`) unless mathematically intentional.
+    - **Shape**: Validate that contractions and transforms maintain the correct physics-based tensor dimensions (e.g., be wary of using `.shape[0]` directly on raw tensor arguments; prefer `tc.backend.shape_tuple`).
+
+### 4. Performance & JAX-Native Design
+- **Userspace JIT**: For **module-level methods** and library functions, **DO NOT** wrap them in `tc.backend.jit`. Users will typically apply JIT/AD in their own "userspace" scripts for end-to-end acceleration.
+- **Vectorization (vmap)**: Replace manual loops with `tc.backend.vmap` where batching is required.
+- **Native Operations**: Prefer backend-native tensor operators over falling back to Numpy lists/arrays where applicable.
+- **Scan for Depth**: Use `tc.backend.scan` for deep, repetitive circuit structures.
+- **Avoid Side Effects**: No global state mutations within potentially JIT-ed regions.
+
+### 5. Code Quality & Static Analysis
+- **Programming Paradigms**: Avoid over-defensive programming; trust internal invariants where reasonable. Use `try...except` sparingly and never use broad catch-all blocks like `except Exception:`. Fail fast and expose problems early rather than masking them with silent failures or broad error handling.
+- **Cruft Removal (Minimal Changes)**: Eliminate duplication and explicitly unreachable dead branches, but *do not* rewrite perfectly functional abstractions or serialization schemas correctly handling edge-cases. Ensure the proposed changes are minimal for the intented targets.
+- **Import Manners**:
+    - **Core Dependency**: Top-level imports in the `tensorcircuit` package are reserved for core dependencies.
+    - **Lazy Imports**: Any non-core or heavy dependency (e.g., `qiskit`, `pennylane`, `cupy`) must be imported **within the function or method scope** where it is used to keep the library lightweight.
+- **Minimalist & High-Quality Documentation**: We prefer good, informative documentation, but it must be concise. Avoid "thinking out loud" in bulky comments or including redundant examples within source code. Let clear naming and lean docstrings explain the *intent*.
+- **Formatting & Linting**: Code must be `black` formatted and aim for a 10.0/10 `pylint` score once edits are approved.
+
+### 6. Testing Standards
+- **No Global Setters**: In `tests/`, do not use explicit calls to `tc.set_backend`, `tc.set_dtype`, or `tc.set_contractor`.
+- **Fixture-First**: Use `pytest` fixtures and lazy fixtures (e.g., `lf("jaxb")`, `lf("tfb")`, `lf("cotengra")`) to manage the environment. This ensures clean teardown and parallel test execution compatibility.
+
+### 7. Review Workflow
+1. **Audit**: Run `git diff` and `git diff --cached`. Identify violations in the changes, including the required diff-scoped `sanity-checker` skill pass.
+2. **Empirical Check (Optional)**: Write temporary `review_demo_*.py` scripts to confirm any suspected issues or test fixes.
+3. **Report**: Present the findings (Issues/Problems only). Include evidence from empirical checks if applicable.
+4. **Cleanup**: Immediately delete all `review_demo_*.py` scripts after generating the report.
+5. **Wait**: Wait for USER approval.
+6. **Refactor**: Only after approval, apply the literal minimum footprint fixes required.
+7. **Final Polish**: Run `black`, `mypy`, `pylint` and verify tests pass.
